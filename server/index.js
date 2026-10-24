@@ -1,0 +1,13 @@
+require('dotenv').config();
+const express=require('express'),cors=require('cors'),{Pool}=require('pg');
+const app=express(); app.use(cors({origin:process.env.CLIENT_ORIGIN||'*'}));app.use(express.json());
+const db=new Pool({connectionString:process.env.DATABASE_URL,ssl:process.env.DB_SSL==='true'?{rejectUnauthorized:false}:undefined});
+const validDate=s=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&!Number.isNaN(Date.parse(s+'T00:00:00Z'));
+const validTime=s=>/^([01]\d|2[0-3]):[0-5]\d$/.test(s);
+app.get('/api/health',(_,res)=>res.json({ok:true}));
+app.get('/api/slots',async(req,res)=>{try{const {rows}=await db.query('SELECT id,day,start_time,duration_minutes,booked_by,booked_email FROM slots ORDER BY day,start_time');res.json(rows)}catch(e){res.status(500).json({error:'Could not load slots'})}});
+app.post('/api/slots',async(req,res)=>{const {day,start_time,duration_minutes}=req.body;const duration=Number(duration_minutes);if(!validDate(day)||!validTime(start_time)||![15,30,45,60,90,120].includes(duration))return res.status(400).json({error:'Invalid date, time or duration'});
+try{const {rows}=await db.query('INSERT INTO slots(day,start_time,duration_minutes) VALUES($1,$2,$3) RETURNING *',[day,start_time,duration]);res.status(201).json(rows[0])}catch(e){res.status(e.code==='23505'?409:500).json({error:e.code==='23505'?'A slot already starts at this time':'Could not create slot'})}});
+app.post('/api/slots/:id/book',async(req,res)=>{const {name,email}=req.body; if(typeof name!=='string'||name.trim().length<2||name.length>100||typeof email!=='string'||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>200)return res.status(400).json({error:'Enter a valid name and email'});
+try{const {rows}=await db.query('UPDATE slots SET booked_by=$1,booked_email=$2 WHERE id=$3 AND booked_by IS NULL AND (day + start_time) >= NOW()::timestamp RETURNING id,day,start_time,duration_minutes,booked_by,booked_email',[name.trim(),email.trim(),req.params.id]);if(!rows.length)return res.status(409).json({error:'Slot unavailable or already booked'});res.json(rows[0])}catch(e){res.status(500).json({error:'Could not book slot'})}});
+const port=process.env.PORT||4000;app.listen(port,()=>console.log('API listening on '+port));
