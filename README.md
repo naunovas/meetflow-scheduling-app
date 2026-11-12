@@ -1,4 +1,4 @@
-# MeetFlow — TeamLift Internship Challenge
+# MeetFlow 
 
 A full-stack scheduling application that allows one host to publish available meeting times and guests to book appointments.
 
